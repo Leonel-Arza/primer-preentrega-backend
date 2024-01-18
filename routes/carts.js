@@ -1,58 +1,64 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 
+mongoose.connect('mongodb://localhost:27017/cartDB', { useNewUrlParser: true, useUnifiedTopology: true });
 
-let cartsDB = [];
-
-
-function generateCartId() {
-    return cartsDB.length + 1; 
-}
-
-router.post('/', (req, res) => {
-    const newCart = {
-        id: generateCartId(),
-        products: [],
-    };
-
-    cartsDB.push(newCart);
-
-    res.json({ message: 'Carrito creado correctamente', data: newCart });
+const cartSchema = new mongoose.Schema({
+    products: [{
+        product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
+        quantity: Number
+    }]
 });
 
+const Cart = mongoose.model('Cart', cartSchema);
 
-router.get('/:cid', (req, res) => {
-    const cartId = parseInt(req.params.cid);
-    const cart = cartsDB.find((c) => c.id === cartId);
-
-    if (!cart) {
-        return res.status(404).json({ error: 'Carrito no encontrado' });
+router.post('/', async (req, res) => {
+    try {
+        const newCart = await Cart.create({ products: [] });
+        res.json({ message: 'Carrito creado correctamente', data: newCart });
+    } catch (error) {
+        res.status(500).json({ error: 'Error al crear el carrito' });
     }
-
-    res.json({ products: cart.products });
 });
 
-
-router.post('/:cid/product/:pid', (req, res) => {
-    const cartId = parseInt(req.params.cid);
-    const productId = parseInt(req.params.pid);
-    const quantity = req.body.quantity || 1; 
-
-    const cartIndex = cartsDB.findIndex((c) => c.id === cartId);
-
-    if (cartIndex === -1) {
-        return res.status(404).json({ error: 'Carrito no encontrado' });
+router.get('/:cid', async (req, res) => {
+    const cartId = req.params.cid;
+    try {
+        const cart = await Cart.findById(cartId).populate('products.product', 'name'); // Assuming 'Product' model with a 'name' field
+        if (!cart) {
+            return res.status(404).json({ error: 'Carrito no encontrado' });
+        }
+        res.json({ products: cart.products });
+    } catch (error) {
+        res.status(500).json({ error: 'Error al obtener el carrito' });
     }
+});
 
-    const productIndex = cartsDB[cartIndex].products.findIndex((p) => p.product === productId);
+router.post('/:cid/product/:pid', async (req, res) => {
+    const cartId = req.params.cid;
+    const productId = req.params.pid;
+    const quantity = req.body.quantity || 1;
 
-    if (productIndex === -1) {
-        cartsDB[cartIndex].products.push({ product: productId, quantity });
-    } else {
-        cartsDB[cartIndex].products[productIndex].quantity += quantity;
+    try {
+        const cart = await Cart.findById(cartId);
+        if (!cart) {
+            return res.status(404).json({ error: 'Carrito no encontrado' });
+        }
+
+        const existingProduct = cart.products.find(p => p.product.toString() === productId);
+        if (existingProduct) {
+            existingProduct.quantity += quantity;
+        } else {
+            cart.products.push({ product: productId, quantity });
+        }
+
+        await cart.save();
+
+        res.json({ message: 'Producto agregado al carrito correctamente', data: cart });
+    } catch (error) {
+        res.status(500).json({ error: 'Error al agregar el producto al carrito' });
     }
-
-    res.json({ message: 'Producto agregado al carrito correctamente', data: cartsDB[cartIndex] });
 });
 
 module.exports = router;
